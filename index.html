@@ -1,0 +1,568 @@
+โค้ด HTML ด้านล่างนี้ได้รับการปรับปรุงแก้ไขตำแหน่งปุ่มเพิ่มรายการให้ลอยตัวอยู่เหนือหน้าจอเสมอ (Fixed Position) และปรับแก้ตรรกะการโหลดข้อมูลเป็นแบบ Optimistic Update พร้อมจำกัดการวาดรายการประวัติบนหน้าจอเพียง 30 รายการล่าสุดเรียบร้อยแล้ว
+
+```html
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>บัญชีค่ายต้นกล้าแห่งศรัทธา</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- Chart.js สำหรับกราฟวงแหวน -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Sarabun', 'Inter', sans-serif; background-color: #f3f4f6; }
+        /* Loader */
+        .loader { border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #16a34a; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* Modal Animation */
+        .modal-enter { opacity: 0; transform: scale(0.95); transition: all 0.2s ease-out; }
+        .modal-enter-active { opacity: 1; transform: scale(1); }
+        /* Hide scrollbar for clean look */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="text-gray-800 antialiased flex justify-center">
+
+    <!-- Mobile Container (เปลี่ยนจาก min-h-screen เป็น h-[100dvh] เพื่อล็อคความสูงหน้าจอ) -->
+    <div class="w-full max-w-md bg-gray-50 h-[100dvh] shadow-2xl relative overflow-x-hidden flex flex-col">
+        
+        <!-- Header -->
+        <header class="bg-[#16a34a] text-white p-4 flex justify-between items-center sticky top-0 z-40 shadow-sm shrink-0">
+            <div class="flex items-center gap-2 font-semibold text-lg">
+                🌱 บัญชีค่ายต้นกล้าแห่งศรัทธา
+            </div>
+            <button id="adminToggleBtn" onclick="toggleAdmin()" class="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1 shadow-sm transition font-medium">
+                <i class="ph ph-lock-key"></i> แอดมิน 
+            </button>
+        </header>
+
+        <!-- Main Content (Scrollable) -->
+        <div class="flex-1 overflow-y-auto pb-24">
+            
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-3 gap-3 p-4">
+                <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm text-center flex flex-col justify-center">
+                    <div class="text-[11px] text-gray-500 mb-1 font-medium">รายรับรวม</div>
+                    <div id="totalIncome" class="font-bold text-green-600 text-sm sm:text-base truncate">0</div>
+                </div>
+                <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm text-center flex flex-col justify-center">
+                    <div class="text-[11px] text-gray-500 mb-1 font-medium">รายจ่ายรวม</div>
+                    <div id="totalExpense" class="font-bold text-red-500 text-sm sm:text-base truncate">0</div>
+                </div>
+                <div class="bg-[#16a34a] p-3 rounded-xl shadow-sm text-center flex flex-col justify-center">
+                    <div class="text-[11px] text-green-100 mb-1 font-medium">คงเหลือ</div>
+                    <div id="totalBalance" class="font-bold text-white text-sm sm:text-base truncate">0</div>
+                </div>
+            </div>
+
+            <!-- Expense Chart Placeholder (Minimal) -->
+            <div class="px-4 pb-4">
+                <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                    <h3 class="text-xs font-semibold text-gray-500 mb-3 text-center">สัดส่วนรายจ่ายแยกตามฝ่าย</h3>
+                    
+                    <!-- Chart Container -->
+                    <div class="relative w-full max-w-[200px] aspect-square mx-auto flex items-center justify-center">
+                        <canvas id="expenseDonutChart"></canvas>
+                        <div id="expenseChartEmpty" class="absolute inset-0 flex items-center justify-center text-[11px] text-gray-400 hidden">
+                            ยังไม่มีข้อมูลรายจ่าย
+                        </div>
+                    </div>
+                    
+                    <!-- Custom Legend (หมวดหมู่และสี) -->
+                    <div id="customLegend" class="mt-4 grid grid-cols-2 gap-2 text-[10px]">
+                        <!-- Legend items injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- History List -->
+            <div class="px-4 pb-6">
+                <h3 class="font-bold text-gray-800 mb-3 text-sm">ประวัติการเบิกจ่าย</h3>
+                <div id="txList" class="space-y-2">
+                    <!-- History items injected here -->
+                </div>
+            </div>
+
+        </div> <!-- End Main Content -->
+
+        <!-- Floating Action Button (เปลี่ยนจาก absolute เป็น fixed) -->
+        <button onclick="openModal('addModal')" class="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-[#16a34a] hover:bg-green-700 text-white rounded-full flex items-center justify-center gap-2 shadow-[0_8px_20px_rgba(22,163,74,0.5)] transition-transform hover:scale-105 z-40 px-6 py-3.5 border border-white/20 whitespace-nowrap">
+            <i class="ph ph-plus text-xl font-bold"></i>
+            <span class="font-semibold text-sm tracking-wide">เพิ่มรายการ</span>
+        </button>
+
+        <!-- Add Transaction Modal -->
+        <div id="addModal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4 pb-0 sm:pb-6">
+            <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeModal('addModal')"></div>
+            <div class="bg-white rounded-t-3xl sm:rounded-2xl shadow-xl w-full max-w-md relative z-10 modal-enter p-5 sm:p-6 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-gray-800 flex items-center gap-2 text-base">
+                        📝 บันทึกรายการใหม่
+                    </h3>
+                    <button type="button" onclick="closeModal('addModal')" class="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
+                        <i class="ph ph-x font-bold"></i>
+                    </button>
+                </div>
+                
+                <form id="txForm" onsubmit="addTransaction(event)" class="space-y-4">
+                    <!-- Type Toggle -->
+                    <div class="flex gap-2 bg-gray-50 p-1 rounded-lg border border-gray-100">
+                        <button type="button" id="btnIncome" onclick="setTxType('รายรับ')" class="flex-1 py-2 rounded-md font-medium text-xs transition bg-white text-gray-600 shadow-sm border border-gray-200">
+                            รายรับ
+                        </button>
+                        <button type="button" id="btnExp" onclick="setTxType('รายจ่าย')" class="flex-1 py-2 rounded-md font-medium text-xs transition bg-[#16a34a] text-white shadow-sm border border-transparent">
+                            รายจ่าย
+                        </button>
+                    </div>
+                    <input type="hidden" name="type" id="txType" value="รายจ่าย">
+
+                    <!-- Inputs -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-medium text-gray-500 mb-1">วันที่</label>
+                            <input type="date" name="date" id="txDate" required class="w-full p-2.5 rounded-lg border border-gray-200 focus:border-green-500 outline-none text-xs bg-gray-50">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-gray-500 mb-1">จำนวนเงิน (บาท)</label>
+                            <input type="number" name="amount" step="0.01" min="0" placeholder="0.00" required class="w-full p-2.5 rounded-lg border border-gray-200 focus:border-green-500 outline-none text-sm font-bold text-gray-800 bg-gray-50 text-right">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-medium text-gray-500 mb-1">หมวดหมู่</label>
+                            <select name="category" id="txCategory" required class="w-full p-2.5 rounded-lg border border-gray-200 focus:border-green-500 outline-none text-xs bg-gray-50">
+                                <!-- Options injected by JS -->
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-gray-500 mb-1">ผู้เบิก/ผู้รับ (ใส่หรือไม่ก็ได้)</label>
+                            <input type="text" name="by" placeholder="เช่น แบมัง..." class="w-full p-2.5 rounded-lg border border-gray-200 focus:border-green-500 outline-none text-xs bg-gray-50">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-medium text-gray-500 mb-1">รายละเอียด / หมายเหตุ (ใส่หรือไม่ก็ได้)</label>
+                        <input type="text" name="note" placeholder="เช่น ค่าข้าวกล่อง, สปอนเซอร์..." class="w-full p-2.5 rounded-lg border border-gray-200 focus:border-green-500 outline-none text-xs bg-gray-50">
+                    </div>
+
+                    <button type="submit" class="w-full bg-[#16a34a] hover:bg-green-700 text-white p-3 rounded-xl font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm mt-2">
+                        <i class="ph ph-floppy-disk text-lg"></i> บันทึกข้อมูล
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Global Loader -->
+        <div id="globalLoader" class="absolute inset-0 bg-white/80 z-[100] hidden items-center justify-center backdrop-blur-sm">
+            <div class="flex flex-col items-center">
+                <div class="loader mb-3"></div>
+                <span class="text-xs text-gray-600 font-medium">กำลังซิงค์ข้อมูล...</span>
+            </div>
+        </div>
+
+        <!-- Login Modal -->
+        <div id="loginModal" class="hidden absolute inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeModal('loginModal')"></div>
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm relative z-10 modal-enter p-6">
+                <div class="text-center mb-5">
+                    <div class="w-10 h-10 bg-gray-100 text-gray-700 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <i class="ph ph-lock-key text-xl"></i>
+                    </div>
+                    <h3 class="text-base font-bold text-gray-800">โหมดแอดมิน </h3>
+                    <p class="text-[11px] text-gray-500 mt-1">กรุณากรอกรหัส PIN เพื่อจัดการข้อมูล</p>
+                </div>
+                <form onsubmit="handleLogin(event)">
+                    <input type="password" id="adminPin" placeholder="รหัส 4 หลัก" required class="w-full text-center text-xl tracking-[0.5em] px-4 py-3 rounded-xl border border-gray-200 focus:border-green-500 outline-none transition mb-4 bg-gray-50">
+                    <button type="submit" class="w-full bg-gray-800 text-white font-medium py-3 rounded-xl text-sm transition">ยืนยัน</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Confirm Modal -->
+        <div id="confirmModal" class="hidden absolute inset-0 z-[60] flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeModal('confirmModal')"></div>
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm relative z-10 p-6 text-center modal-enter">
+                <div class="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <i class="ph ph-warning-circle text-2xl"></i>
+                </div>
+                <h3 class="text-base font-bold text-gray-800 mb-1">ยืนยันการลบ?</h3>
+                <p id="confirmMessage" class="text-xs text-gray-500 mb-5">คุณแน่ใจหรือไม่...</p>
+                <div class="flex justify-center gap-2">
+                    <button onclick="closeModal('confirmModal')" class="flex-1 py-2.5 bg-gray-100 text-gray-700 font-medium text-sm rounded-xl transition">ยกเลิก</button>
+                    <button id="confirmBtn" class="flex-1 py-2.5 bg-red-500 text-white font-medium text-sm rounded-xl transition shadow-sm">ลบรายการ</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ⚙️ JavaScript Logic -->
+    <!-- ========================================== -->
+    <script>
+        const CONFIG = {
+            GAS_URL: "https://script.google.com/macros/s/AKfycbxMQAI5meHjnQGFRHsH_fUTPJ2tZ4WMsQ3EWcEqc7BTm4YxDkBP4cGwRLnaae4d1IiC/exec", 
+            ADMIN_PIN: "2569" // ควรย้ายไปตรวจที่ฝั่ง Google Apps Script ในอนาคต
+        };
+
+        let state = {
+            transactions: [],
+            isAdmin: false,
+            isLoading: false
+        };
+
+        let expenseChartInstance = null;
+
+        const CATS = {
+            'รายรับ': ["เงินสนับสนุน", "ค่าลงทะเบียน", "อื่นๆ"],
+            'รายจ่าย': ["ค่าอาหาร/ครัว", "ค่าอุปกรณ์กิจกรรม", "ค่าสถานที่/บริการ", "ค่าเดินทาง", "ยา/สวัสดิการ", "ค่าเอกสาร/PR", "อื่นๆ"]
+        };
+
+        async function initApp() {
+            document.getElementById('txDate').valueAsDate = new Date();
+            setTxType('รายจ่าย');
+            await fetchData();
+        }
+
+        async function fetchData() {
+            setLoading(true);
+            try {
+                const response = await fetch(CONFIG.GAS_URL);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    state.transactions = result.data;
+                }
+            } catch (error) {
+                showToast("เชื่อมต่อข้อมูลล้มเหลว", "error");
+            }
+            setLoading(false);
+            renderUI();
+        }
+
+        async function addTransaction(event) {
+            event.preventDefault();
+            
+            const form = event.target;
+            const newTx = {
+                id: Date.now().toString(),
+                date: form.date.value,
+                type: form.type.value,
+                category: form.category.value,
+                amount: parseFloat(form.amount.value),
+                note: form.note.value || "",
+                by: form.by.value || ""
+            };
+
+            setLoading(true);
+            try {
+                // ส่งคำสั่งเบื้องหลัง
+                fetch(CONFIG.GAS_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'add', data: newTx })
+                });
+                
+                showToast("บันทึกสำเร็จ", "success");
+                form.reset();
+                closeModal('addModal');
+                document.getElementById('txDate').valueAsDate = new Date();
+                
+                // Optimistic Update: อัปเดตข้อมูลและวาดหน้าจอทันทีโดยไม่ต้องดึงข้อมูลใหม่
+                state.transactions.push(newTx);
+                renderUI();
+                setLoading(false);
+            } catch (error) {
+                showToast("บันทึกข้อมูลล้มเหลว", "error");
+                setLoading(false);
+            }
+        }
+
+        async function deleteTransaction(id) {
+            if (!state.isAdmin) return;
+            showConfirmModal("ต้องการลบรายการนี้ใช่หรือไม่?", async () => {
+                setLoading(true);
+                try {
+                    // ส่งคำสั่งเบื้องหลัง
+                    fetch(CONFIG.GAS_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'delete', id: id })
+                    });
+                    
+                    showToast("ลบข้อมูลสำเร็จ", "success");
+                    
+                    // Optimistic Update: นำข้อมูลออกจากอาร์เรย์และวาดหน้าจอใหม่ทันที
+                    state.transactions = state.transactions.filter(tx => tx.id !== id);
+                    renderUI();
+                    setLoading(false);
+                } catch (error) {
+                    showToast("ลบล้มเหลว", "error");
+                    setLoading(false);
+                }
+            });
+        }
+
+        // --- UI Interactions ---
+
+        function setTxType(type) {
+            document.getElementById('txType').value = type;
+            const btnInc = document.getElementById('btnIncome');
+            const btnExp = document.getElementById('btnExp');
+            
+            if (type === 'รายรับ') {
+                btnInc.className = 'flex-1 py-2 rounded-md font-medium text-xs transition bg-[#16a34a] text-white shadow-sm border border-transparent';
+                btnExp.className = 'flex-1 py-2 rounded-md font-medium text-xs transition bg-white text-gray-600 shadow-sm border border-gray-200';
+            } else {
+                btnExp.className = 'flex-1 py-2 rounded-md font-medium text-xs transition bg-[#16a34a] text-white shadow-sm border border-transparent';
+                btnInc.className = 'flex-1 py-2 rounded-md font-medium text-xs transition bg-white text-gray-600 shadow-sm border border-gray-200';
+            }
+
+            const catSelect = document.getElementById('txCategory');
+            catSelect.innerHTML = '';
+            CATS[type].forEach(cat => {
+                catSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+            });
+        }
+
+        function toggleAdmin() {
+            if (state.isAdmin) {
+                state.isAdmin = false;
+                showToast("ออกจากระบบแอดมินแล้ว", "success");
+                renderUI();
+            } else {
+                openModal('loginModal');
+            }
+        }
+
+        function handleLogin(event) {
+            event.preventDefault();
+            const pin = document.getElementById('adminPin').value;
+            if (pin === CONFIG.ADMIN_PIN) {
+                state.isAdmin = true;
+                closeModal('loginModal');
+                document.getElementById('adminPin').value = '';
+                showToast("ปลดล็อคสิทธิ์การลบข้อมูล", "success");
+                renderUI();
+            } else {
+                showToast("รหัส PIN ไม่ถูกต้อง!", "error");
+            }
+        }
+
+        function renderUI() {
+            // 1. นำข้อมูลทั้งหมดมาคำนวณยอดรวม (เพื่อความถูกต้องของกราฟและสรุปยอด)
+            let tInc = 0, tExp = 0;
+            let expSummary = {};
+
+            const allSortedTx = [...state.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            allSortedTx.forEach(tx => {
+                const amt = Number(tx.amount);
+                if (tx.type === 'รายรับ') {
+                    tInc += amt;
+                } else {
+                    tExp += amt;
+                    expSummary[tx.category] = (expSummary[tx.category] || 0) + amt;
+                }
+            });
+
+            document.getElementById('totalIncome').innerText = formatMoney(tInc);
+            document.getElementById('totalExpense').innerText = formatMoney(tExp);
+            document.getElementById('totalBalance').innerText = formatMoney(tInc - tExp);
+
+            // 2. Render Chart (Donut Chart)
+            const emptyLabel = document.getElementById('expenseChartEmpty');
+            const canvasEl = document.getElementById('expenseDonutChart');
+            const legendEl = document.getElementById('customLegend');
+            
+            if (tExp === 0) {
+                emptyLabel.classList.remove('hidden');
+                canvasEl.style.display = 'none';
+                legendEl.innerHTML = '';
+                if (expenseChartInstance) {
+                    expenseChartInstance.destroy();
+                    expenseChartInstance = null;
+                }
+            } else {
+                emptyLabel.classList.add('hidden');
+                canvasEl.style.display = 'block';
+                
+                const sortedCats = Object.entries(expSummary).sort((a,b) => b[1] - a[1]);
+                const labels = sortedCats.map(item => item[0]);
+                const dataValues = sortedCats.map(item => item[1]);
+                
+                const bgColors = ['#f472b6', '#60a5fa', '#34d399', '#fbbf24', '#a78bfa', '#f87171', '#9ca3af'];
+                
+                legendEl.innerHTML = '';
+                sortedCats.forEach((cat, index) => {
+                    const color = bgColors[index % bgColors.length];
+                    const percent = ((cat[1] / tExp) * 100).toFixed(1);
+                    legendEl.innerHTML += `
+                        <div class="flex items-center gap-1.5 p-1.5 bg-gray-50 rounded-lg">
+                            <div class="w-3 h-3 rounded-full shrink-0 shadow-sm" style="background-color: ${color}"></div>
+                            <div class="flex-1 truncate text-gray-600 font-medium">${cat[0]}</div>
+                            <div class="font-bold text-gray-800">${percent}%</div>
+                        </div>
+                    `;
+                });
+
+                const centerTextPlugin = {
+                    id: 'centerText',
+                    beforeDraw: function(chart) {
+                        const width = chart.width, height = chart.height, ctx = chart.ctx;
+                        ctx.restore();
+                        
+                        ctx.font = "bold 16px 'Inter', sans-serif";
+                        ctx.textBaseline = "middle";
+                        ctx.fillStyle = "#1f2937";
+                        const text = "฿" + formatMoney(tExp),
+                            textX = Math.round((width - ctx.measureText(text).width) / 2),
+                            textY = height / 2;
+                        ctx.fillText(text, textX, textY);
+                        
+                        ctx.font = "11px 'Sarabun', sans-serif";
+                        ctx.fillStyle = "#6b7280";
+                        const label = "รายจ่าย",
+                            labelX = Math.round((width - ctx.measureText(label).width) / 2),
+                            labelY = (height / 2) + 18;
+                        ctx.fillText(label, labelX, labelY);
+                        ctx.save();
+                    }
+                };
+
+                if (expenseChartInstance) {
+                    expenseChartInstance.data.labels = labels;
+                    expenseChartInstance.data.datasets[0].data = dataValues;
+                    expenseChartInstance.update();
+                } else {
+                    expenseChartInstance = new Chart(canvasEl, {
+                        type: 'doughnut',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                data: dataValues,
+                                backgroundColor: bgColors,
+                                borderWidth: 2,
+                                borderColor: '#ffffff',
+                                hoverOffset: 5
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            cutout: '75%',
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    padding: 10,
+                                    callbacks: {
+                                        label: function(context) {
+                                            return ' ฿' + formatMoney(context.parsed);
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        plugins: [centerTextPlugin]
+                    });
+                }
+            }
+
+            // 3. Render Transaction List (จำกัดการแสดงผลแค่ 30 รายการล่าสุด)
+            const listEl = document.getElementById('txList');
+            listEl.innerHTML = '';
+            
+            const displayTx = allSortedTx.slice(0, 30);
+            
+            if (displayTx.length === 0) {
+                listEl.innerHTML = `<div class="text-center text-xs text-gray-400 py-8 bg-white rounded-xl border border-gray-100">ยังไม่มีรายการบันทึก</div>`;
+            } else {
+                displayTx.forEach(tx => {
+                    const isInc = tx.type === 'รายรับ';
+                    const detailText = [tx.note, tx.by].filter(Boolean).join(' • ') || '-';
+
+                    listEl.innerHTML += `
+                        <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-3 overflow-hidden">
+                                <div class="w-9 h-9 rounded-full flex shrink-0 items-center justify-center ${isInc ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}">
+                                    <i class="ph ${isInc ? 'ph-arrow-down-left' : 'ph-arrow-up-right'} text-lg"></i>
+                                </div>
+                                <div class="flex flex-col truncate text-left">
+                                    <span class="text-xs font-bold text-gray-800 truncate">${tx.category}</span>
+                                    <span class="text-[10px] text-gray-500 truncate">${detailText}</span>
+                                    <span class="text-[9px] text-gray-400">${formatDate(tx.date)}</span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col items-end shrink-0 pl-2">
+                                <span class="text-sm font-bold ${isInc ? 'text-green-600' : 'text-red-500'}">
+                                    ${isInc ? '+' : '-'} ${formatMoney(tx.amount)}
+                                </span>
+                                ${state.isAdmin ? `
+                                    <button onclick="deleteTransaction('${tx.id}')" class="text-[10px] text-gray-400 hover:text-red-500 mt-1 flex items-center gap-1 transition">
+                                        <i class="ph ph-trash"></i> ลบ
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            // 4. Update Admin States
+            const toggleBtn = document.getElementById('adminToggleBtn');
+            
+            if (state.isAdmin) {
+                toggleBtn.innerHTML = `<i class="ph ph-lock-open"></i> ออกจากระบบ`;
+                toggleBtn.className = "bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1 transition font-medium border border-white/30";
+            } else {
+                toggleBtn.innerHTML = `<i class="ph ph-lock-key"></i> แอดมิน`;
+                toggleBtn.className = "bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1 shadow-sm transition font-medium";
+            }
+        }
+
+        // --- Helpers ---
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount);
+        }
+        function formatDate(dateStr) {
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+        }
+        function setLoading(isLoading) {
+            document.getElementById('globalLoader').style.display = isLoading ? 'flex' : 'none';
+        }
+        function openModal(id) {
+            const el = document.getElementById(id);
+            el.classList.remove('hidden');
+            el.querySelector('.bg-white').classList.add('modal-enter-active');
+        }
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+        function showConfirmModal(msg, onConfirm) {
+            document.getElementById('confirmMessage').innerText = msg;
+            openModal('confirmModal');
+            document.getElementById('confirmBtn').onclick = () => { closeModal('confirmModal'); onConfirm(); };
+        }
+        function showToast(msg, type = "success") {
+            const toast = document.createElement('div');
+            const color = type === 'success' ? 'bg-gray-800' : 'bg-red-500';
+            const icon = type === 'success' ? 'check-circle' : 'warning-circle';
+            toast.className = `fixed bottom-6 left-1/2 transform -translate-x-1/2 ${color} text-white px-5 py-2.5 rounded-full shadow-lg z-[100] transition-all duration-300 text-xs font-medium flex items-center gap-2 whitespace-nowrap`;
+            toast.innerHTML = `<i class="ph ph-${icon} text-base"></i><span>${msg}</span>`;
+            document.querySelector('.max-w-md').appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2500);
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
+
+```
