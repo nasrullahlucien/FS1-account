@@ -1,6 +1,3 @@
-โค้ด HTML ด้านล่างนี้ได้รับการปรับปรุงแก้ไขตำแหน่งปุ่มเพิ่มรายการให้ลอยตัวอยู่เหนือหน้าจอเสมอ (Fixed Position) และปรับแก้ตรรกะการโหลดข้อมูลเป็นแบบ Optimistic Update พร้อมจำกัดการวาดรายการประวัติบนหน้าจอเพียง 30 รายการล่าสุดเรียบร้อยแล้ว
-
-```html
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -27,7 +24,7 @@
 </head>
 <body class="text-gray-800 antialiased flex justify-center">
 
-    <!-- Mobile Container (เปลี่ยนจาก min-h-screen เป็น h-[100dvh] เพื่อล็อคความสูงหน้าจอ) -->
+    <!-- Mobile Container -->
     <div class="w-full max-w-md bg-gray-50 h-[100dvh] shadow-2xl relative overflow-x-hidden flex flex-col">
         
         <!-- Header -->
@@ -89,7 +86,7 @@
 
         </div> <!-- End Main Content -->
 
-        <!-- Floating Action Button (เปลี่ยนจาก absolute เป็น fixed) -->
+        <!-- Floating Action Button -->
         <button onclick="openModal('addModal')" class="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-[#16a34a] hover:bg-green-700 text-white rounded-full flex items-center justify-center gap-2 shadow-[0_8px_20px_rgba(22,163,74,0.5)] transition-transform hover:scale-105 z-40 px-6 py-3.5 border border-white/20 whitespace-nowrap">
             <i class="ph ph-plus text-xl font-bold"></i>
             <span class="font-semibold text-sm tracking-wide">เพิ่มรายการ</span>
@@ -207,7 +204,7 @@
     <script>
         const CONFIG = {
             GAS_URL: "https://script.google.com/macros/s/AKfycbxMQAI5meHjnQGFRHsH_fUTPJ2tZ4WMsQ3EWcEqc7BTm4YxDkBP4cGwRLnaae4d1IiC/exec", 
-            ADMIN_PIN: "2569" // ควรย้ายไปตรวจที่ฝั่ง Google Apps Script ในอนาคต
+            ADMIN_PIN: "2569"
         };
 
         let state = {
@@ -260,7 +257,6 @@
 
             setLoading(true);
             try {
-                // ส่งคำสั่งเบื้องหลัง
                 fetch(CONFIG.GAS_URL, {
                     method: 'POST',
                     mode: 'no-cors',
@@ -273,7 +269,6 @@
                 closeModal('addModal');
                 document.getElementById('txDate').valueAsDate = new Date();
                 
-                // Optimistic Update: อัปเดตข้อมูลและวาดหน้าจอทันทีโดยไม่ต้องดึงข้อมูลใหม่
                 state.transactions.push(newTx);
                 renderUI();
                 setLoading(false);
@@ -288,7 +283,6 @@
             showConfirmModal("ต้องการลบรายการนี้ใช่หรือไม่?", async () => {
                 setLoading(true);
                 try {
-                    // ส่งคำสั่งเบื้องหลัง
                     fetch(CONFIG.GAS_URL, {
                         method: 'POST',
                         mode: 'no-cors',
@@ -298,7 +292,6 @@
                     
                     showToast("ลบข้อมูลสำเร็จ", "success");
                     
-                    // Optimistic Update: นำข้อมูลออกจากอาร์เรย์และวาดหน้าจอใหม่ทันที
                     state.transactions = state.transactions.filter(tx => tx.id !== id);
                     renderUI();
                     setLoading(false);
@@ -308,8 +301,6 @@
                 }
             });
         }
-
-        // --- UI Interactions ---
 
         function setTxType(type) {
             document.getElementById('txType').value = type;
@@ -356,7 +347,6 @@
         }
 
         function renderUI() {
-            // 1. นำข้อมูลทั้งหมดมาคำนวณยอดรวม (เพื่อความถูกต้องของกราฟและสรุปยอด)
             let tInc = 0, tExp = 0;
             let expSummary = {};
 
@@ -376,7 +366,6 @@
             document.getElementById('totalExpense').innerText = formatMoney(tExp);
             document.getElementById('totalBalance').innerText = formatMoney(tInc - tExp);
 
-            // 2. Render Chart (Donut Chart)
             const emptyLabel = document.getElementById('expenseChartEmpty');
             const canvasEl = document.getElementById('expenseDonutChart');
             const legendEl = document.getElementById('customLegend');
@@ -474,7 +463,6 @@
                 }
             }
 
-            // 3. Render Transaction List (จำกัดการแสดงผลแค่ 30 รายการล่าสุด)
             const listEl = document.getElementById('txList');
             listEl.innerHTML = '';
             
@@ -514,7 +502,6 @@
                 });
             }
 
-            // 4. Update Admin States
             const toggleBtn = document.getElementById('adminToggleBtn');
             
             if (state.isAdmin) {
@@ -526,7 +513,6 @@
             }
         }
 
-        // --- Helpers ---
         function formatMoney(amount) {
             return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount);
         }
@@ -564,5 +550,3 @@
     </script>
 </body>
 </html>
-
-```
